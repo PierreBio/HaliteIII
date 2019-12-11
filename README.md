@@ -28,3 +28,4 @@ The Halite executable comes with a command line interface (CLI). Run `$ ./halite
   * Clojure: Upload a project.clj. Your bot will compile with `lein uberjar`.
   * .NET: Upload a MyBot.csproj or MyBot.fsproj. Your bot will compile with `dotnet restore` followed with `dotnet build`.
 # HaliteIII
+
