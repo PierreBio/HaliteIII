@@ -10,7 +10,7 @@ using namespace hlt;
 
 int main(int argc, char* argv[]) {
 
-	// -- Victor Bot
+	// -- Victor Bot --
 
     unsigned int rng_seed;
     if (argc > 1) {
