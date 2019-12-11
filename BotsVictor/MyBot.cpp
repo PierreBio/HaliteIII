@@ -9,6 +9,9 @@ using namespace std;
 using namespace hlt;
 
 int main(int argc, char* argv[]) {
+
+	// -- Victor Bot
+
     unsigned int rng_seed;
     if (argc > 1) {
         rng_seed = static_cast<unsigned int>(stoul(argv[1]));
