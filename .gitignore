@@ -9,3 +9,6 @@ __pycache__/
 *.class
 *.ipr
 *.iws
+*.sln
+*.vcx*
+.vs
