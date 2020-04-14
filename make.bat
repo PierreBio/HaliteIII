@@ -46,10 +46,11 @@ cl.exe /FeMyBot.exe /std:c++14 /O2 /MT /EHsc /I . /Fo.\obj\ ^
  .\hlt\log.cpp ^
  .\hlt\player.cpp ^
  .\hlt\ship.cpp ^
- .\hlt\tunables.cpp ^
- .\hlt\shipStatus.cpp ^
+ .\hlt\state.cpp ^
  .\hlt\strategymap.cpp ^
+ .\hlt\cellfriendliness.cpp ^
  .\hlt\navigator.cpp ^
  .\hlt\strategy.cpp^
- .\hlt\comparator.cpp^
+ .\hlt\parameters.cpp^
+ .\hlt\geneticalgo.cpp^
  .\MyBot.cpp ^

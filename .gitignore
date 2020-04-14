@@ -12,3 +12,4 @@ __pycache__/
 *.sln
 *.vcx*
 .vs
+.vs*

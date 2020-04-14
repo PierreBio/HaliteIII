@@ -1,59 +1,41 @@
 #pragma once
-
+//BILLAUD Pierre / COUTURIEUX Victor STMN P5
+//Fichiers initiaux
 #include "types.hpp"
 #include "position.hpp"
 #include "ship.hpp"
 #include "dropoff.hpp"
 #include "game.hpp"
 #include "constants.hpp"
-#include "comparator.h"
+//Fichiers créés
 #include "direction.hpp"
-#include "tunables.h"
-#include "shipStatus.hpp"
+#include "state.hpp"
+#include "geneticalgo.h"
 
 #include <random>
 #include <set>
+#include <stdlib.h>
 
 using namespace std;
 using namespace hlt;
 
-// The navigator stores information about map and navigation
-// It make high level decisions about where to go.
-// Planning : a navigator will just accept a ship and a mode (say,
-// explore or return home). -- It will (1) return a direction or
+// Classe permettant de prendre les décision globales liées à la navigation,
+// à l'exploration et la collecte en fonction du potentiel des cases et du bateau
 class Navigator {
 public:
     Navigator(shared_ptr<GameMap>& gameMap, shared_ptr<Player>& me,
-              unordered_map<EntityId, ShipStatus>& shipStatus, mt19937& rng);
+              unordered_map<EntityId, State>& stateShip, mt19937& rng,
+              GeneticAlgo * geneticAlgo);
 
-    int getPickUpThreshold() {return lowestHaliteToCollect_;}
-
-    vector<Direction> createShip(shared_ptr<Ship> ship);
-    vector<Direction> explore(shared_ptr<Ship> ship);
+    vector<Direction> explore(const Position & position, shared_ptr<Ship> ship);
     vector<Direction> collect(shared_ptr<Ship> ship);
-    vector<Direction> dropoffHalite(shared_ptr<Ship> ship);
+    vector<Direction> findDirection(const Position & position, shared_ptr<Ship> ship);
+    vector<Direction> goToClosestDropoff(shared_ptr<Ship> ship);
 
 private:
     mt19937& rng_;
     shared_ptr<GameMap> gameMap_;
     shared_ptr<Player> me_;
-    vector<vector<Halite>> bestReturnRoute_;
-    unordered_map<EntityId, ShipStatus>& shipStatus_;
-
-    set<Position> usedPosiitons_;
-    // what is the highest halite potential (halite/turn) in this map
-    double maxHalitePotential_;
-    // what is the lowest potential I should still consider going to navigate to
-    double halitePotentialNavigateThreshold_;
-    // what is the lowest halite I should still consider going to collect
-    int lowestHaliteToCollect_;
-
-
-    double calculateMaxHalitePotential();
-    double calculateHalitePotentialNavigateThreshold(double maxHalitePotential);
-    int calculateLowestHaliteToCollect();
-
-    vector<Position> getSurroundingPositions(Position middlePos, int lookAhead);
-    vector<Direction> wiggleDirectionsMostHalite(shared_ptr<Ship> ship);
-    bool confusedExploringShipNearby(shared_ptr<Ship> ship);
+    unordered_map<EntityId, State>& stateShip_;
+    GeneticAlgo * geneticAlgo_;
 };

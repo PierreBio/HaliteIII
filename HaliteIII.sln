@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.168
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HaliteIII", "HaliteIII.vcxproj", "{AC407039-912C-4894-9588-C8DC57CF25AE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Debug|x64.ActiveCfg = Debug|x64
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Debug|x64.Build.0 = Debug|x64
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Debug|x86.ActiveCfg = Debug|Win32
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Debug|x86.Build.0 = Debug|Win32
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Release|x64.ActiveCfg = Release|x64
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Release|x64.Build.0 = Release|x64
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Release|x86.ActiveCfg = Release|Win32
+		{AC407039-912C-4894-9588-C8DC57CF25AE}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A8CA5909-9D49-4B6D-9083-0DE0AFC55776}
+	EndGlobalSection
+EndGlobal

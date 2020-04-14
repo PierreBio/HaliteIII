@@ -1,0 +1,4 @@
+playerId:1
+haliteAmount:3353
+shipCreated:4
+dropoffCreated:0

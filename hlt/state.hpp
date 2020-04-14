@@ -1,6 +1,7 @@
 #pragma once
+//BILLAUD Pierre / COUTURIEUX Victor STMN P5
 
-enum class ShipStatus {
+enum class State {
     NEW, EXPLORE, COLLECT, RETURN
 };
 

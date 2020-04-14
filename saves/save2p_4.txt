@@ -1,0 +1,5 @@
+shipVision:15
+shipHaliteMove:300
+shipHaliteReturn:650
+noShipProduction:13
+turnBotStopSpawn:300

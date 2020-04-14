@@ -1,3 +1,4 @@
+//BILLAUD Pierre / COUTURIEUX Victor STMN P5
 #include "strategymap.h"
 
 #include <queue>
@@ -8,99 +9,211 @@
 using namespace std;
 using namespace hlt;
 
-StrategyMap::StrategyMap(shared_ptr<GameMap>& gameMap, shared_ptr<Player>& me, int nPlayers, mt19937& rng,
-    bool collisionCenterOkay) :
-rng_(rng) {
-    me_ = me;
-    nPlayers_ = nPlayers;
-    gameMap_ = gameMap;
+StrategyMap::StrategyMap(const shared_ptr<GameMap>& gameMap,const shared_ptr<Player>& me, const int & nPlayers, mt19937& rng, const bool & backToDropoff)
+    :rng_(rng),
+      me_(me),
+      nPlayers_(nPlayers),
+      gameMap_(gameMap),
+      shouldMakeShip_(false),
+      backToDropoff_(backToDropoff)
+{
+    shipDirectionQueue_ = {};
+    vector<Command> command_queue_ = {};
     shipsComingtoPos_ = {};
     shipDirectionQueue_ = {};
     allConflicts_ = {};
-    shouldMakeShip_ = false;
-    collisionCenterOkay_ = collisionCenterOkay;
-    vector<Command> command_queue_ = {};
+
+    determineHaliteAreas();
 }
 
-void StrategyMap::createDropoff(shared_ptr<Ship> ship) {
+void StrategyMap::determineHaliteAreas()
+{
+
+    int bestTotalHalite = 0;
+    Position bestPosForHalite;
+
+    Position shipyardPos = Position(me_->shipyard->position.x, me_->shipyard->position.y);
+    int bestPositionDistance = gameMap_->width;
+
+    //On regarde toutes les zones du jeu et on déduit laquelle possède le plus de halite
+    for (int i = 0; i < gameMap_->height; i++) {
+        for (int j = 0; j < gameMap_->width; j++) {
+
+            int totalHaliteForCurrentArea = 0;
+            MapCell * cell = gameMap_->at(Position(j,i));
+
+            for(int h = i-1; h < i+2; h++) {
+                for(int w = j-1; w < j+2; w++) {
+
+                   Position normalized = gameMap_->normalize(Position(w,h));
+                   int haliteAmount = totalHaliteForCurrentArea;
+                   totalHaliteForCurrentArea = gameMap_->at(normalized)->halite + haliteAmount;
+                }
+            }
+
+            int distanceWithShipyard = gameMap_->calculate_distance(shipyardPos,Position(j,i));
+
+            //Quantité totale de Halite
+            if(totalHaliteForCurrentArea > bestTotalHalite) {
+                bestTotalHalite = totalHaliteForCurrentArea;
+                bestPosForHalite = Position(j, i);
+                bestPositionDistance = gameMap_->calculate_distance(shipyardPos,Position(j,i));
+            }
+
+            if(totalHaliteForCurrentArea == bestTotalHalite && distanceWithShipyard < bestPositionDistance) {
+                bestPosForHalite = Position(j, i);
+            }
+        }
+    }
+
+    CellFriendliness * bestCellFriend = new CellFriendliness();
+
+    //Choix de la première zone (on prend en compte les ennemis + la distance cette fois)
+    for (int i = 0; i < gameMap_->height; i++) {
+        for (int j = 0; j < gameMap_->width; j++) {
+
+            int totalHaliteForCurrentArea = 0;
+            int distanceWithShipyard = gameMap_->calculate_distance(shipyardPos,Position(j,i));
+            int enemyCount = 0;
+
+            for(int h = i-1; h < i+2; h++) {
+                for(int w = j-1; w < j+2; w++) {
+                    Position normalized = gameMap_->normalize(Position(w,h));
+                    if(gameMap_->at(normalized)->is_occupied() &&
+                        gameMap_->at(normalized)->ship->owner != me_->id) {
+                        int currentEnemyCount = enemyCount;
+                        enemyCount = currentEnemyCount + 1;
+                    }
+
+                    int haliteAmount = totalHaliteForCurrentArea;
+                    totalHaliteForCurrentArea = gameMap_->at(normalized)->halite + haliteAmount;
+                }
+            }
+
+            CellFriendliness * cellFriend = new CellFriendliness();
+            cellFriend->setPosition(j, i);
+            cellFriend->setDistanceWithShipyard(distanceWithShipyard);
+            cellFriend->setTotalHaliteArea(totalHaliteForCurrentArea);
+            cellFriend->setEnemiesInArea(enemyCount);
+            cellFriend->evaluateCell(bestTotalHalite);
+
+            if(cellFriend->getFinaleNote() > bestCellFriend->getFinaleNote()) {
+                bestCellFriend = cellFriend;
+            }
+        }
+    }
+
+    targetArea = bestCellFriend;
+}
+
+CellFriendliness * StrategyMap::getTarget()
+{
+    return targetArea;
+}
+
+void StrategyMap::createDropoff(const shared_ptr<Ship> & ship)
+{
     command_queue_.push_back(ship->make_dropoff());
 }
 
-void StrategyMap::addIntent(shared_ptr<Ship> ship, vector<Direction> preferredDirs, bool ignoreOpponentFlag) {
-    //log::log("Add intent: ship " + to_string(ship->id));
-    shipIgnoresOpponent_[ship->position] = ignoreOpponentFlag;
-    if (!gameMap_->can_move(ship)) {
-        shipDirectionQueue_[ship->position].push(Direction::STILL);
-        shipsComingtoPos_[ship->position].push_back(ship);
-        return;
+bool StrategyMap::closeToTarget(const shared_ptr<Ship> & ship)
+{
+    if(gameMap_->calculate_distance(ship->position,targetArea->getPosition()) < 3) {
+        return true;
     }
-    Position currentPos = ship->position;
-    for (Direction dir : preferredDirs) {
-        shipDirectionQueue_[ship->position].push(dir);
-    }
-    if (preferredDirs.empty()) {
-        //log::log("Preferred direction should not be empty!");
-        preferredDirs.push_back(Direction::STILL);
-    }
-    Direction mostPreferredDir = preferredDirs[0];
-    Position newPos = gameMap_->destination_position(currentPos, mostPreferredDir);
-    shipsComingtoPos_[newPos].push_back(ship);
+
+    return false;
 }
 
 void StrategyMap::createShip() {
     shouldMakeShip_ = true;
 }
 
+// Stocke la décision du bateau
+void StrategyMap::stockDecision(const shared_ptr<Ship> & ship, vector<Direction> preferredDirs)
+{
+    shipIgnoresOpponent_[ship->position] = false;
 
-vector<Command> StrategyMap::processOutputsAndEndTurn(Game& game, shared_ptr<Player> me) {
+    if (!gameMap_->can_move(ship)) {
+        shipDirectionQueue_[ship->position].push(Direction::STILL);
+        shipsComingtoPos_[ship->position].push_back(ship);
+        return;
+    }
+
+    Position currentPos = Position(ship->position.x, ship->position.y);
+    for (Direction dir : preferredDirs) {
+        shipDirectionQueue_[ship->position].push(dir);
+    }
+
+    if (preferredDirs.empty()) {
+        preferredDirs.push_back(Direction::STILL);
+    }
+
+    Direction mostPreferredDir = preferredDirs[0];
+    Position newPos = gameMap_->destination_position(currentPos, mostPreferredDir);
+    shipsComingtoPos_[newPos].push_back(ship);
+}
+
+vector<Command> StrategyMap::verifyAndRetrieveAllCommands(const Game& game,const shared_ptr<Player> & me)
+{
     // Résoudre les conflits
     solveIssues();
 
-   // Get all the directions
-   //log::log("Real OUT");
-   for (auto kv : shipDirectionQueue_) {
+    // Récapitulatif des directions
+    for (auto kv : shipDirectionQueue_) {
        Position shipPos = kv.first;
        shared_ptr<Ship> ship = gameMap_->at(shipPos)->ship;
-       Direction dir = currentDirection(ship);
+       Direction dir = destination(ship);
        command_queue_.push_back(ship->move(dir));
-       //Position nextPos = destinationPos(ship);
-       //log::log("ship " + to_string(ship->id) + " position " + ship->position.toString() +
-       //         " -> " + nextPos.toString());
-   }
+    }
 
-   if (shouldMakeShip_) {
-       if(isFreeSpace(me->shipyard->position)) {
+    // Création d'un nouveau bateau ou non
+    if (shouldMakeShip_) {
+       if(noIntentToCreateShip(me->shipyard->position))
+       {
            command_queue_.push_back(me->shipyard->spawn());
        }
-   }
+    }
 
     return command_queue_;
 }
 
-bool StrategyMap::isFreeSpace(Position pos) {
+bool StrategyMap::noIntentToCreateShip(Position pos)
+{
     return shipsComingtoPos_[pos].size() == 0;
 }
 
+//Indique dans quelle direction est la destination du bateau
+Direction StrategyMap::destination(const shared_ptr<Ship> & ship)
+{
+    Position shipPos = Position(ship->position.x, ship->position.y);
+    if (shipDirectionQueue_[shipPos].empty()) {
+        return Direction::STILL;
+    }
+    return shipDirectionQueue_[shipPos].front();
+}
 
-// Initialize allConflicts_ and call resolve all
+// Résoudre tous les conflits liés à la position en modifiant si besoin les destinations
 void StrategyMap::solveIssues() {
-    // Loop through the shipsComingtoPos_, obtain all conflicts
-    // and keep it in a stack.
 
+
+    //Récapitule tous les conflits existants
     for (auto kv : shipsComingtoPos_) {
         Position pos = kv.first;
         if (conflict(pos)) {
             allConflicts_.push(pos);
         }
     }
+    //Résoud ces derniers un par un
     iterateAndResolveConflicts();
 }
 
-// Does this block has conflict
-bool StrategyMap::conflict(Position& pos) {
-    if (collisionCenterOkay_)
+// Vérifie si il y a un conflit
+bool StrategyMap::conflict(const Position& pos)
+{
+    if (backToDropoff_)
     {
-        // allow collision on dropoffs and shipyard
+        // N'empêche pas le chevauchement entre bateau et base de collecte
         vector<Position> homePositions;
         homePositions.push_back(me_->shipyard->position);
 
@@ -128,12 +241,11 @@ bool StrategyMap::conflict(Position& pos) {
                         return true;
                     }
                 }
-                // if we already has a ship there, then
-                // it is not a conflict!
+                // Si le bateau est allié, alors ce n'est pas un conflit
                 if (!gameMap_->at(pos)->is_occupied()) {
+
                      if(hasEnemyPresence(pos)) {
-                    // in this case, we might hit an enemy. To be safe, we will say
-                    // that we will have a 8% chance of not seeing the conflict.
+                    // 8% de chance de ne pas le voir, sinon on le frappe
                         if (rng_() % 100 > 8) {
                             return true;
                         }
@@ -145,7 +257,9 @@ bool StrategyMap::conflict(Position& pos) {
     return false;
 }
 
-bool StrategyMap::hasEnemyShip(Position& pos) {
+//Vérifie si un ennemi se situe sur la position données
+bool StrategyMap::hasEnemyShip(const Position& pos)
+{
     MapCell* cell = gameMap_->at(pos);
     if (cell->is_occupied() && cell->ship->owner != me_->id) {
         return true;
@@ -153,13 +267,14 @@ bool StrategyMap::hasEnemyShip(Position& pos) {
     return false;
 }
 
-bool StrategyMap::hasEnemyPresence(Position& centerPos) {
+//Vérifie si un ennmi se situe autour du bateau
+bool StrategyMap::hasEnemyPresence(Position centerPos)
+{
     for (Position surroundingPos : centerPos.get_surrounding_cardinals()) {
         surroundingPos = gameMap_->normalize(surroundingPos);
         MapCell* surroundingCell = gameMap_->at(surroundingPos);
         if (surroundingCell->is_occupied()) {
             if(surroundingCell->ship->owner != me_->id) {
-                //log::log("enemy presence at " + centerPos.toString());
                 return true;
             }
         }
@@ -167,39 +282,37 @@ bool StrategyMap::hasEnemyPresence(Position& centerPos) {
     return false;
 }
 
-void StrategyMap::iterateAndResolveConflicts() {
+//Parcourt chaque signalement existant et les résoud un par un
+void StrategyMap::iterateAndResolveConflicts()
+{
 
     while(!allConflicts_.empty()) {
         Position conflictMiddlePos = allConflicts_.front();
         allConflicts_.pop();
-        //log::log("conflict: " + conflictMiddlePos.toString());
         solveIssue(conflictMiddlePos);
     }
 }
 
-void StrategyMap::solveIssue(Position middlePos) {
-    //log::log("resolve: " + middlePos.toString());
-    MapCell* middleCell = gameMap_->at(middlePos);
-    // running into an enemy
+void StrategyMap::solveIssue(const Position & middlePos)
+{
 
+    MapCell* middleCell = gameMap_->at(middlePos);
+
+    //Si la position est occupé par un ennemi on redirige les bateaux
     if (middleCell->is_occupied() && middleCell->ship->owner != me_->id) {
-        //log::log("detected");
         vector<shared_ptr<Ship>> shipsToRedirect = shipsComingtoPos_[middlePos];
         redirectShips(shipsToRedirect);
     }
 
-    // If the middle position is empty, we allow the
-    // ship with the greatest halite to go to the destination,
-    // but don't allow other ships.
+    //Si la position est vide, on permet au bateau le plus chargé en halite d'y aller
     else if(!middleCell->is_occupied()) {
+
+        //Si il y a des ennemis pas loin de cette position, on redirige les bateaux
         if (hasEnemyPresence(middlePos)) {
-            // avoid enemies case
             vector<shared_ptr<Ship>> shipsToRedirect = shipsComingtoPos_[middlePos];
             redirectShips(shipsToRedirect);
-        }
-        else {
-            // in this case it is O -> X <- O
-            // get all the ships pointing here
+        } else {
+            //Sinon, les bateaux y vont
             vector<shared_ptr<Ship>> shipsToRedirect = shipsComingtoPos_[middlePos];
             auto maxShipIndex = max_element(shipsToRedirect.begin(), shipsToRedirect.end(),
                                             shipHasLessHalite);
@@ -209,29 +322,24 @@ void StrategyMap::solveIssue(Position middlePos) {
             redirectShips(shipsToRedirect);
         }
     }
-    // O -> O <- O
-        // If the middle position is not empty we allow the middle ship
-        // to choose what to do, that is, we direct all other ships that the middle
-        // ship is not pointing to.
-        // If the middle ship chooses to stay still, then all other ships will have to
-        // redirect.
+
+    // Si la position est occupé par un bateau allié, on regarde la décision qu'il a prise précèdemment
+    // On ajuste la direction des autres bateaux en fonction de ce choix en évitant qu'ils passent au même endroit
     else {
-        // if it is occupied, then it has a ship.
-        // Case : it is not out ship
         shared_ptr<Ship> middleShip = gameMap_->at(middlePos)->ship;
         vector<shared_ptr<Ship>> shipsToRedirect = shipsComingtoPos_[middlePos];
 
         if (middleShip->owner != me_->id) {
             redirectShips(shipsToRedirect);
         }
-        if(currentDirection(middleShip) == Direction::STILL) {
+
+        if(destination(middleShip) == Direction::STILL) {
             redirectShips(shipsToRedirect);
         } else {
-            // looking at where the current ship is pointing to
-            Direction middleDir = currentDirection(middleShip);
-            // the ship at the position can move to the middle, if it wants.
-            // that is, it does not have to redirect if it is in the list.
+            // On regarde la destination du bateau
+            Direction middleDir = destination(middleShip);
             Position safeShipPos = gameMap_->destination_position(middlePos, middleDir);
+
             for (shared_ptr<Ship> shipToRedirect : shipsToRedirect) {
                 if (shipToRedirect->position != safeShipPos) {
                     redirectShip(shipToRedirect);
@@ -241,12 +349,11 @@ void StrategyMap::solveIssue(Position middlePos) {
     }
 }
 
-void StrategyMap::redirectShip(shared_ptr<Ship> ship) {
-    //log::log("ship " + to_string(ship->id) + " redirection:" + ship->position.toString());
-
+void StrategyMap::redirectShip(const shared_ptr<Ship> & ship)
+{
     for(;;) {
         if( shipConflict(ship) ) {
-            if(currentDirection(ship) != Direction::STILL) {
+            if(destination(ship) != Direction::STILL) {
                 changeToNextDirection(ship);
             } else {
                 break;
@@ -261,48 +368,44 @@ void StrategyMap::redirectShip(shared_ptr<Ship> ship) {
     }
 }
 
-void StrategyMap::redirectShips(vector<shared_ptr<Ship>> ships) {
+void StrategyMap::redirectShips(vector<shared_ptr<Ship>> ships)
+{
     for (shared_ptr<Ship> ship : ships) {
         redirectShip(ship);
     }
 }
 
-// Change the direction of ship to be the next direction in queue
-void StrategyMap::changeToNextDirection(shared_ptr<Ship> ship) {
+// Modifie la destination d'un bateau (réajuste le tableau des positions de destination)
+void StrategyMap::changeToNextDirection(const shared_ptr<Ship> & ship)
+{
     Position currentPos = ship->position;
     Position nextPos = destinationPos(ship);
 
-    // remove
     auto eraseIndex = find(shipsComingtoPos_[nextPos].begin(), shipsComingtoPos_[nextPos].end(), ship);
     shipsComingtoPos_[nextPos].erase(eraseIndex);
 
     shipDirectionQueue_[currentPos].pop();
 
-    // add : we have to get the destination again because
-    // the current destination of the ship has changed by popping
     nextPos = destinationPos(ship);
     shipsComingtoPos_[nextPos].push_back(ship);
 }
 
-Position StrategyMap::destinationPos(shared_ptr<Ship> ship) {
-    Direction currentDir = currentDirection(ship);
+//Indique à quelle position est la destination du bateau
+Position StrategyMap::destinationPos(const shared_ptr<Ship> & ship)
+{
+    Direction currentDir = destination(ship);
     Position targetDir = gameMap_->destination_position(ship->position, currentDir);
     return targetDir;
 }
 
-Direction StrategyMap::currentDirection(shared_ptr<Ship> ship) {
-    Position shipPos = ship->position;
-    if (shipDirectionQueue_[shipPos].empty()) {
-        return Direction::STILL;
-    }
-    return shipDirectionQueue_[shipPos].front();
-}
-
-bool StrategyMap::shipHasLessHalite(const shared_ptr<Ship>& ship1, const shared_ptr<Ship>& ship2) {
+bool StrategyMap::shipHasLessHalite(const shared_ptr<Ship>& ship1, const shared_ptr<Ship>& ship2)
+{
     return ship1->halite < ship2->halite;
 }
 
-bool StrategyMap::shipConflict(shared_ptr<Ship> ship) {
+bool StrategyMap::shipConflict(const shared_ptr<Ship> & ship)
+{
     Position targetDir = destinationPos(ship);
     return conflict(targetDir);
 }
+

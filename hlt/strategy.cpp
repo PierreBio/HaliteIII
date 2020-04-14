@@ -1,14 +1,16 @@
+//BILLAUD Pierre / COUTURIEUX Victor STMN P5
 #include "strategy.h"
 #include <unordered_set>
 
-Strategy::Strategy(mt19937 &rng, Game &game,int & countPlayers, int & mapSize, unordered_map<EntityId, ShipStatus>& stateShip)
+Strategy::Strategy(mt19937 &rng, Game &game,int & countPlayers, int & mapSize, unordered_map<EntityId, State>& stateShip, GeneticAlgo * geneticAlgo)
     :game_(game),
       stateShip_(stateShip),
       rng_(rng),
       countPlayers_(countPlayers),
       mapSize_(mapSize),
       totalDropoff(0),
-      newDropoffThisTurn(false)
+      newDropoffThisTurn(false),
+      geneticAlgo_(geneticAlgo)
 {
 
 }
@@ -23,44 +25,49 @@ vector<Command> Strategy::turnGlobalStrategy()
 {
     // Récupérer les données du moteur de jeu
     shared_ptr<Player> me = game_.me;
-    shared_ptr<GameMap>& game_map = game_.game_map;
-
-    //Nouveau tour donc on initialise les variables à 0
-    newDropoffThisTurn = false;
+    shared_ptr<GameMap>& gameMap = game_.game_map;
 
     //Tous les bateaux reviennent si la partie est bientôt finie
-    bool backToShipyard = soonEndGame(game_);
+    bool backToDropoff = soonEndGame(game_);
 
-    //Initialisation de la carte stratégique (prise de décisions)
-    StrategyMap movementMap = StrategyMap(game_map, me, game_.players.size(), rng_, backToShipyard);
+    //StrategyMap qui va définir les meilleures zones à collecter
+    StrategyMap * strategyMap = new StrategyMap(gameMap, me, game_.players.size(), rng_, backToDropoff);
 
-    //Initialisation de la navigation
-    Navigator navigator = Navigator(game_map, me, stateShip_, rng_);
+    std::string sX = std::to_string(strategyMap->getTarget()->getPosition().x);
+    std::string sY = std::to_string(strategyMap->getTarget()->getPosition().y);
+    std::string sAreaHalite = std::to_string(strategyMap->getTarget()->getTotalHaliteArea());
+
+    log::log("X : " +
+             sX +
+             ". Y : " + sY+ " Halite in area : " + sAreaHalite);
+
+    //Navigator qui contient toutes les fonctions d'action
+    Navigator navigator(gameMap, me, stateShip_, rng_, geneticAlgo_ );
 
     //On veut déterminer l'état actuel de chaque bateau pour prendre les bonnes décisions ensuites
     for (const auto& ship_iterator : me->ships) {
         shared_ptr<Ship> ship = ship_iterator.second;
-        determineCurrentShipState(ship, me, game_, game_map, stateShip_, navigator, backToShipyard);
+        determineCurrentShipState(ship, me, game_, gameMap, stateShip_, navigator, backToDropoff);
     }
 
-    Tunables tunables;
+    newDropoffThisTurn = false;
 
-    //Pour chaque bateau, on va statuer sur le choix d'une action
     for (const auto& ship_iterator : me->ships) {
         shared_ptr<Ship> ship = ship_iterator.second;
-        vector <Direction> nextDirs;
+        vector<Direction> futureDirections;
 
     int counter = 0;
 
     //Si toutes les conditions suivantes sont remplies, alors le bateau se transforme en base de collecte (on passe au bateau suivant)
-        if(totalDropoff < int(me->ships.size() / 13)){
-            if(game_.turn_number <= constants::MAX_TURNS - tunables.lookUpTunable("noProdTurn")+50) {
+    //Remarque : des erreurs surviennent pendant la compilation avec des and ou des &&, d'où l'enchevêtrement de conditions
+    //Cause : inconnue (malgré de nombreuses recherches)
+    if(totalDropoff < me->ships.size()){
+            if(game_.turn_number < geneticAlgo_->getParamOfPlayer(game_.my_id).getTurnWhenBotStopSpawn()) {
                 if(me->halite >= 5000) {
                     if(!newDropoffThisTurn) {
-                        if(hasHighSurroundingHalite(game_, ship)){
-                            if(!hasSurroundingDropOffs(game_, ship)){
-
-                                movementMap.createDropoff(ship);
+                        if(!closeDropoffs(game_, ship)){
+                            if(gameMap->calculate_distance(ship->position, me->shipyard->position) >= (int)(gameMap->width/4)) {
+                                strategyMap->createDropoff(ship);
                                 newDropoffThisTurn = true;
                                 totalDropoff += 1;
                                 counter += 1;
@@ -71,59 +78,72 @@ vector<Command> Strategy::turnGlobalStrategy()
                 }
             }
         }
-    //Sinon on regarde l'état de chaque bateau et on prend une décision en conséquence
+
+        //Sinon on regarde l'état de chaque bateau et on prend une décision en conséquence
         if(counter == 0) {
-            if(stateShip_[ship->id] == ShipStatus::NEW) {
-                nextDirs = navigator.createShip(ship);
+
+            Position targetPos = Position(strategyMap->getTarget()->getPosition().x, strategyMap->getTarget()->getPosition().y);
+
+            if(strategyMap->getTarget()->getPosition().x == 0) {
+                targetPos = Position(strategyMap->getTarget()->getPosition().x+1,strategyMap->getTarget()->getPosition().y);
             }
-            else if (stateShip_[ship->id] == ShipStatus::EXPLORE) {
-                nextDirs = navigator.explore(ship);
+
+            if(strategyMap->getTarget()->getPosition().y == 0) {
+                targetPos = Position(strategyMap->getTarget()->getPosition().x,strategyMap->getTarget()->getPosition().y+1);
             }
-            else if (stateShip_[ship->id] == ShipStatus::COLLECT) {
-                nextDirs = navigator.collect(ship);
+
+            if(stateShip_[ship->id] == State::NEW) {
+                futureDirections = navigator.explore(targetPos, ship);
             }
-            else if (stateShip_[ship->id] == ShipStatus::RETURN) {
-                nextDirs = navigator.dropoffHalite(ship);
+            else if (stateShip_[ship->id] == State::EXPLORE) {
+                futureDirections = navigator.explore(targetPos, ship);
+            }
+            else if (stateShip_[ship->id] == State::COLLECT) {
+                futureDirections = navigator.collect(ship);
+            }
+            else if (stateShip_[ship->id] == State::RETURN) {
+                futureDirections = navigator.goToClosestDropoff(ship);
             }
         }
 
-        //On stock la décision dans carte stratégique pour chaque bateau
-        movementMap.addIntent(ship, nextDirs);
+        //On stocke la décision dans la carte stratégique pour chaque bateau
+        strategyMap->stockDecision(ship, futureDirections);
     }
 
     int counter = 0 ;
 
     //Une fois toutes les décision prises pour les bateaux : on décide de créer un nouveau bateau ou de ne rien faire
-    if (game_.turn_number <= constants::MAX_TURNS - tunables.lookUpTunable("noProdTurn") ) {
+    if (game_.turn_number <= geneticAlgo_->getParamOfPlayer(game_.my_id).getTurnWhenBotStopSpawn() ) {
         if(me->halite >= constants::SHIP_COST) {
-            if(me->ships.size() >= 16 ){
-                if(totalDropoff < int(me->ships.size() / 13)) {
-                    if(game_.turn_number > 110 ) {
-                        if(totalDropoff < 4 ) {
-                            if(me->halite < 5000) {
-                                //On attend pour économiser les halites
-                                counter +=1;
-                            }
+            if(me->ships.size() >=geneticAlgo_->getParamOfPlayer(game_.my_id).getNumberShipStopProduction()-5 ) {
+                if(game_.turn_number > 110 ) {
+                    if(totalDropoff < 4 ) {
+                        if(me->halite < 4000) {
+                            //On attend pour économiser les halites
+                            counter +=1;
                         }
                     }
                 }
             }
 
             if(counter == 0) {
-                movementMap.createShip();
+                if(me->ships.size()*1000 <= me->halite ) {
+                    strategyMap->createShip();
+                }
             }
         }
     }
 
-    //On regroupe toutes les décisions finales, on vérifie leur faisabilité et on les stocke dans "result"
-    vector<Command> result = movementMap.processOutputsAndEndTurn(game_, me);
+    // On regroupe toutes les décisions finales, on vérifie leur faisabilité et on les stocke dans "result"
+    vector<Command> decisions = strategyMap->verifyAndRetrieveAllCommands(game_, me);
 
-    return result;
-
+    // On retourne toutes les décisions
+    return decisions;
 }
 
-//Vérifie sir la partie est bientôt terminée
-bool Strategy::soonEndGame(const Game & game) {
+//Vérifie si la partie est bientôt terminée
+bool Strategy::soonEndGame(const Game & game)
+{
 
     // Numéro du tour actuel
     int turn = game.turn_number;
@@ -137,120 +157,107 @@ bool Strategy::soonEndGame(const Game & game) {
     //Taille de la carte
     int mapsize = game.game_map->height;
 
-    // Si le nombre de tours restants équivaut à/est plus petit que la moitié
+    // Si le nombre de tours restants équivaut à/est plus petit qu'un tiers
     // de la taille de la carte alors la partie va bientôt terminer
     // (utile pour que les bateaux aient le temps de rentrer)
-    if (remainingTurns <= mapsize / 2) {
+    if (remainingTurns <= mapsize / 3) {
         return true;
     }
 
     return false;
 }
 
+//Vérifie si le bateau doit collecter la case sur laquelle il est ou non
+int Strategy::canCollectHalite(Game &game, shared_ptr<Ship> ship)
+{
+    shared_ptr<GameMap>& gameMap = game_.game_map;
 
-//Vérifie l'état de chaque bateau et change ce dernier si besoin
-void Strategy::determineCurrentShipState(shared_ptr<Ship> ship, shared_ptr<Player> me, Game &game, shared_ptr<GameMap>& game_map, unordered_map <EntityId,
-                 ShipStatus>& shipStatus, Navigator &navigator, bool backToShipyard ) {
+    //On oublie pas : 25% de la case est récoltée lorsqu'on collecte
+    int capacityMaxBeforeReturn = geneticAlgo_->getParamOfPlayer(game_.my_id).getMaxHaliteShipReturn();
+    int capacityMaxBeforeMove = geneticAlgo_->getParamOfPlayer(game_.my_id).getMaxHaliteShipMove();
 
-    //Si la partie est bientôt terminée alors chaque bateau passe à l'état retour
-    if(backToShipyard) {
-        shipStatus[ship->id] = ShipStatus::RETURN;
+    if(ship->halite >= capacityMaxBeforeReturn) {
+        return 0; //RETURN
     }
 
-    if(shipStatus[ship->id] == ShipStatus::NEW) {
-        shipStatus[ship->id] = ShipStatus::EXPLORE;
+    if(ship->halite < (gameMap->at(ship->position)->halite*0.1)) {
+        return 1; //COLLECT
     }
 
-    if(!shipStatus.count(ship->id)){
-        shipStatus[ship->id] = ShipStatus::NEW;
+    if(gameMap->at(ship->position)->halite > capacityMaxBeforeMove) {
+        return 1; //COLLECT
     }
 
-    if(ship->position == me->shipyard->position) {
-        shipStatus[ship->id] = ShipStatus::NEW;
-    }
-
-    for(auto dropoffPair : me->dropoffs) {
-        Position dropoffPos = dropoffPair.second->position;
-
-        if(ship->position == dropoffPos) {
-            shipStatus[ship->id] = ShipStatus::NEW;
-        }
-    }
-
-    if(shipStatus[ship->id] == ShipStatus::EXPLORE) {
-        if(game_map->at(ship->position)->halite
-                >= navigator.getPickUpThreshold()) {
-            if(!ship->is_full()) {
-                shipStatus[ship->id] = ShipStatus::COLLECT;
-            }
-            else if (ship->halite >= calculateCurrentShipCapacity(game)){
-                shipStatus[ship->id] = ShipStatus::RETURN;
-            }
-        }
-    }
-
-    if(shipStatus[ship->id] == ShipStatus::COLLECT) {
-        if(game_map->at(ship->position)->halite >= navigator.getPickUpThreshold()*2) {
-            if(!(ship->halite >= calculateCurrentShipCapacity(game)+20)) {
-                shipStatus[ship->id] = ShipStatus::COLLECT;
-            }
-            else if (ship->halite >= calculateCurrentShipCapacity(game)) {
-                shipStatus[ship->id] = ShipStatus::RETURN;
-            }
-            else {
-                shipStatus[ship->id] = ShipStatus::EXPLORE;
-            }
-        }
-    }
+    return 2; //EXPLORE
 
 }
 
-//Vérifie si le bateau a la capacité ou non de recevoir des halites
-int Strategy::calculateCurrentShipCapacity(Game& game) {
-    Tunables tunables;
+//Vérifie s'il y a des bases de collecte pas loin (selon la portée de l'algo génétique
+bool Strategy::closeDropoffs (Game &game, shared_ptr<Ship> ship)
+{
+    int radius = geneticAlgo_->getParamOfPlayer(game_.my_id).getMaxDistShipSee();
+    vector <Position> dropoffsPos;
+    dropoffsPos.push_back(game.me->shipyard->position);
 
-    //calcul du pourcentage de partie qui est effectué
-    double turnRatio= (double)game.turn_number / constants::MAX_TURNS;
-
-    int start = tunables.lookUpTunable("ShipCapStart");
-    int end = tunables.lookUpTunable("ShipCapEnd");
-    int diff = start - end;
-    int shipCapacity = start - int(turnRatio * diff);
-    return shipCapacity;
-}
-
-//Vérifie s'il y a beaucoup de halites autour du bateau
-bool Strategy::hasHighSurroundingHalite(Game &game, shared_ptr<Ship> ship) {
-    shared_ptr<GameMap>& game_map = game.game_map;
-
-    int totalHalite = 0;
-    for(int i = 0; i <=4; i++) {
-        for (int j = 0; j <= 4 ; j++) {
-            Position currPos = Position(ship->position.x + Position(i-2, j-2).x, ship->position.y + Position(i-2, j-2).y );
-            totalHalite += game_map->at(currPos)->halite;
-        }
+    for(auto dropoffs : game.me->dropoffs) {
+        dropoffsPos.push_back(dropoffs.second->position);
     }
 
-    return totalHalite >= 200*25;
-}
-
-//Vérifie s'il y a des bases de collecte pas loin : rayon = 10
-bool Strategy::hasSurroundingDropOffs (Game &game, shared_ptr<Ship> ship) {
-    int radius = 10;
-    vector <Position> basePositions;
-    basePositions.push_back(game.me->shipyard->position);
-
-    for(auto dropoffPair : game.me->dropoffs) {
-        basePositions.push_back(dropoffPair.second->position);
-    }
-
-    for(Position pos : basePositions) {
+    for(Position pos : dropoffsPos) {
         if(game.game_map->calculate_distance(ship->position, pos) < radius) {
             return true;
         }
     }
 
     return false;
+}
+
+//Vérifie l'état de chaque bateau et définie leur état pour ensuite choisir leur action
+void Strategy::determineCurrentShipState(shared_ptr<Ship> ship, shared_ptr<Player> me, Game &game, shared_ptr<GameMap>& game_map, unordered_map <EntityId,
+                 State>& stateShip, Navigator &navigator, bool backToShipyard )
+{
+
+    //Si la partie est bientôt terminée alors chaque bateau passe à l'état retour
+    if(backToShipyard) {
+        stateShip[ship->id] = State::RETURN;
+    }
+
+    //Si le bateau était nouveau au tour précédent, alors il va maintenant être actif
+    if(stateShip[ship->id] == State::NEW) {
+        stateShip[ship->id] = State::EXPLORE;
+    }
+
+    //Si le statut du bateau n'est pas référencé alors on le passe en nouveau
+    if(!stateShip.count(ship->id)){
+        stateShip[ship->id] = State::NEW;
+    }
+
+    //Si le bateau est situé sur le chantier de départ, alors c'est un nouveau bateau
+    if(ship->position == me->shipyard->position) {
+        stateShip[ship->id] = State::NEW;
+    }
+
+    //Si le bateau est sur une base de collecte, on passe sont statut en nouveau
+    for(auto dropoffs : me->dropoffs) {
+        Position dropoffPos = dropoffs.second->position;
+
+        if(ship->position == dropoffPos) {
+            stateShip[ship->id] = State::NEW;
+        }
+    }
+
+    //Si le bateau explore déjà
+    if(stateShip[ship->id] == State::EXPLORE || stateShip[ship->id] == State::COLLECT) {
+        if(canCollectHalite(game, ship) == 0) {
+            stateShip[ship->id] = State::RETURN;
+        }
+        else if (canCollectHalite(game, ship) == 1) {
+            stateShip[ship->id] = State::COLLECT;
+        }
+        else if (canCollectHalite(game, ship) == 2) {
+            stateShip[ship->id] = State::EXPLORE;
+        }
+    }
 }
 
 
