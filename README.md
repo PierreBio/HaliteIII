@@ -5,7 +5,7 @@ Compte rendu
 ![image](https://user-images.githubusercontent.com/45881846/147853445-e0d194c9-87fc-4b8a-8e9b-e15c780c2c28.png)
 
 ## Introduction
-Ce compte rendu a pour objectif principal de présenter et expliquer sous différents angles le « bot » que nous avons réalisé dans le cadre du cours « Intelligence Artificielle » tutoré par M.Buendia. À ce titre, nous allons aborder principalement tout ce qui a trait à l’intelligence artificielle sur le côté technique, et sur sa conception de manière générale. Nous allons nous appesantir sur la manière dont nous avons organisé le code pour créer cette IA. Nous reviendrons également sur les difficultés que l’on a rencontrées et sur les points principaux à améliorer. Pour finir, nous exprimerons notre ressenti respectif sur le travail réalisé.
+Ce compte rendu a pour objectif principal de présenter et expliquer sous différents angles le « bot » que nous avons réalisé dans le cadre du cours « Intelligence Artificielle » du CNAM-ENJMIN tutoré par M.Buendia. À ce titre, nous allons aborder principalement tout ce qui a trait à l’intelligence artificielle sur le côté technique, et sur sa conception de manière générale. Nous allons nous appesantir sur la manière dont nous avons organisé le code pour créer cette IA. Nous reviendrons également sur les difficultés que l’on a rencontrées et sur les points principaux à améliorer. Pour finir, nous exprimerons notre ressenti respectif sur le travail réalisé.
 
 ## Readme
 * call make.bat pour compiler
